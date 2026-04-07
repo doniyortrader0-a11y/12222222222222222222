@@ -183,6 +183,10 @@ def broadcast_message(message):
 
 # ================== HANDLE PDF ==================
 
+@bot.message_handler(func=lambda m: True)
+def debug_all(message):
+    print("GOT MESSAGE:", message.text)
+
 @bot.message_handler(content_types=['document'])
 def handle_pdf(message):
     if message.document.mime_type != 'application/pdf':
@@ -272,4 +276,4 @@ def callback(call):
 if __name__ == "__main__":
     threading.Thread(target=run_web).start()
     print("🚀 Bot Running...")
-    bot.infinity_polling(skip_pending=True)
+    bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=60)
