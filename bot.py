@@ -6,16 +6,17 @@ from datetime import datetime, timedelta
 import threading
 from flask import Flask
 
-# ================== TOKEN ==================
+# ================== CONFIG ==================
 BOTTOKEN = "7972205321:AAFkpCpePT8ynRqdOr6qYOlcKmFA-ikEjwE"
+ADMIN_ID = 5436942211  # 🔴 PUT YOUR TELEGRAM ID HERE
 
 if not BOTTOKEN:
-    print("❌ BOT_TOKEN is missing from environment")
+    print("❌ BOT_TOKEN missing")
     exit()
 
 bot = telebot.TeleBot(BOTTOKEN)
 
-# ================== WEB SERVER (RENDER FIX) ==================
+# ================== WEB SERVER ==================
 app = Flask(__name__)
 
 @app.route('/')
@@ -31,6 +32,7 @@ if not os.path.exists(FOLDER):
     os.makedirs(FOLDER)
 
 user_data = {}
+users = set()
 
 # ================== HELPERS ==================
 
@@ -79,10 +81,7 @@ def find_blocks(logs):
     for log in logs:
         if log["status"] in ["Off Duty", "Sleeper"]:
             if current is None:
-                current = {
-                    "start": log["time"],
-                    "location": log["location"]
-                }
+                current = {"start": log["time"], "location": log["location"]}
         else:
             if current:
                 current["end"] = log["time"]
@@ -105,7 +104,7 @@ def get_first_work(logs):
             return log
     return None
 
-# ================== PICKUP DETECTION ==================
+# ================== PICKUP ==================
 
 def get_pickup(text):
     lines = text.split("\n")
@@ -120,7 +119,6 @@ def get_pickup(text):
 
     last = pickup_lines[-1]
 
-    # extract time
     time_match = re.search(r"(\d{2}/\d{2}, \d{2}:\d{2}:\d{2})", last)
     location_match = re.search(r"of\s+(.+?,\s*[A-Z]{2})", last)
 
@@ -142,7 +140,46 @@ def get_pickup(text):
 
 @bot.message_handler(commands=['start'])
 def start(msg):
+    users.add(msg.chat.id)
     bot.reply_to(msg, "🚛 Send PDF")
+
+# ================== ADMIN PANEL ==================
+
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "❌ Not allowed")
+        return
+
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("👥 Users", "📊 Stats", "📢 Broadcast")
+
+    bot.send_message(message.chat.id, "Admin Panel", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text in ["👥 Users", "📊 Stats", "📢 Broadcast"])
+def admin_actions(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    if message.text == "👥 Users":
+        bot.send_message(message.chat.id, f"Total users: {len(users)}")
+
+    elif message.text == "📊 Stats":
+        bot.send_message(message.chat.id, "Bot is running perfectly 🚀")
+
+    elif message.text == "📢 Broadcast":
+        bot.send_message(message.chat.id, "Send message to broadcast:")
+        bot.register_next_step_handler(message, broadcast_message)
+
+def broadcast_message(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    for user in users:
+        try:
+            bot.send_message(user, message.text)
+        except:
+            pass
 
 # ================== HANDLE PDF ==================
 
@@ -151,6 +188,8 @@ def handle_pdf(message):
     if message.document.mime_type != 'application/pdf':
         bot.reply_to(message, "❌ Send PDF only")
         return
+
+    users.add(message.chat.id)
 
     bot.reply_to(message, "⏳ Processing...")
 
@@ -185,7 +224,6 @@ def handle_pdf(message):
         "pickup": pickup
     }
 
-    # buttons
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(
         telebot.types.InlineKeyboardButton("📦 Pickup", callback_data="pickup"),
@@ -193,7 +231,7 @@ def handle_pdf(message):
         telebot.types.InlineKeyboardButton("🛌 Shift", callback_data="shift")
     )
 
-    bot.send_message(message.chat.id, "Choose option:", reply_markup=markup)
+    bot.send_message(message.chat.id, f"Driver: {driver}\n\nChoose option:", reply_markup=markup)
 
 # ================== BUTTON HANDLER ==================
 
@@ -209,23 +247,23 @@ def callback(call):
     if call.data == "pickup":
         p = data["pickup"]
         if p:
-            text = f"Pickup Info:\nTime: {p['time']}\nDay: {p['day']}\nLocation: {p['location']}"
+            text = f"📦 Pickup Info:\nTime: {p['time']}\nDay: {p['day']}\nLocation: {p['location']}"
         else:
-            text = "Pickup Info:\nNot Found"
+            text = "📦 Pickup Info:\nNot Found"
 
     elif call.data == "cycle":
         c = data["cycle"]
         if c:
-            text = f"Cycle Info:\nFrom: {format_time(c['start'])}\nTill: {format_time(c['end'])}\nLocation: {clean_location(c['location'])}"
+            text = f"🔄 Cycle Info:\nFrom: {format_time(c['start'])}\nTill: {format_time(c['end'])}\nLocation: {clean_location(c['location'])}"
         else:
-            text = "Cycle Info:\nNot Found"
+            text = "🔄 Cycle Info:\nNot Found"
 
     elif call.data == "shift":
         s = data["shift"]
         if s:
-            text = f"Shift Info:\nFrom: {format_time(s['start'])}\nTill: {format_time(s['end'])}\nLocation: {clean_location(s['location'])}"
+            text = f"🛌 Shift Info:\nFrom: {format_time(s['start'])}\nTill: {format_time(s['end'])}\nLocation: {clean_location(s['location'])}"
         else:
-            text = "Shift Info:\nNot Found"
+            text = "🛌 Shift Info:\nNot Found"
 
     bot.send_message(call.message.chat.id, text)
 
